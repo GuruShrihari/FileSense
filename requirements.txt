@@ -1,0 +1,5 @@
+# FileSense Production Dependencies
+# Python 3.10+
+# 
+# Currently using Python standard library only.
+# Add external dependencies here as needed.
