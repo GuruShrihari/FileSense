@@ -20,6 +20,7 @@ if str(SRC) not in sys.path:
 from filesense.core.scanner import FileScanner
 from filesense.core.extractor import TextExtractor
 from filesense.core.embeddings import EmbeddingModel, VectorIndex
+from filesense.core.analysis import SafetyAnalyzer, DuplicateDetector
 
 
 # Set up logging
@@ -61,6 +62,10 @@ def main():
         st.session_state.index = None
     if "embedding_model" not in st.session_state:
         st.session_state.embedding_model = None
+    if "recommendations" not in st.session_state:
+        st.session_state.recommendations = None
+    if "duplicate_detector" not in st.session_state:
+        st.session_state.duplicate_detector = None
     
     # Header
     st.title("📁 FileSense")
@@ -197,6 +202,33 @@ def main():
                 except Exception as e:
                     st.error(f"❌ Error building index: {str(e)}")
                     logger.error(f"Indexing error: {e}", exc_info=True)
+        
+        # Analyze files for safe-to-delete recommendations
+        with st.spinner("🔍 Analyzing files for deletion safety..."):
+            try:
+                # Detect duplicates
+                duplicate_detector = DuplicateDetector()
+                for file in files:
+                    duplicate_detector.add_file(file.full_path, file.size_bytes)
+                
+                duplicate_groups = duplicate_detector.find_duplicates()
+                
+                # Build duplicate map (file_path -> duplicate_count)
+                duplicate_map = {}
+                for group in duplicate_groups:
+                    for file_path in group.file_paths:
+                        duplicate_map[file_path] = len(group.file_paths) - 1
+                
+                # Analyze safety
+                analyzer = SafetyAnalyzer()
+                recommendations = analyzer.analyze_batch(files, duplicate_map)
+                
+                # Store in session state
+                st.session_state.recommendations = recommendations
+                st.session_state.duplicate_detector = duplicate_detector
+                
+            except Exception as e:
+                logger.error(f"Analysis error: {e}", exc_info=True)
         
         # Display results
         st.success(f"✅ Scan complete! Found {len(files)} files")
@@ -363,6 +395,154 @@ def main():
                 st.error(f"❌ Search error: {str(e)}")
                 logger.error(f"Search error: {e}", exc_info=True)
     
+    # Safe-to-Delete Recommendations
+    if st.session_state.recommendations is not None:
+        st.markdown("---")
+        st.subheader("🗑️ Safe-to-Delete Recommendations")
+        
+        # Disclaimer
+        st.warning("""
+        ⚠️ **IMPORTANT DISCLAIMER**
+        
+        These are AI-assisted recommendations based on file metadata. 
+        **FileSense does NOT automatically delete files.**
+        
+        - Always review recommendations carefully before deleting
+        - We are not responsible for any data loss
+        - When in doubt, keep the file or make a backup
+        """)
+        
+        # Filter options
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            min_safety_score = st.slider(
+                "Minimum Safety Score",
+                min_value=0,
+                max_value=100,
+                value=60,
+                step=5,
+                help="Only show files with safety score above this threshold"
+            )
+        with col2:
+            max_results = st.number_input(
+                "Max Results",
+                min_value=10,
+                max_value=200,
+                value=50,
+                step=10
+            )
+        with col3:
+            risk_filter = st.selectbox(
+                "Risk Level",
+                options=["All", "LOW", "MEDIUM", "HIGH"],
+                index=0
+            )
+        
+        # Filter recommendations
+        filtered_recs = [
+            r for r in st.session_state.recommendations
+            if r.safety_score >= min_safety_score
+        ]
+        
+        if risk_filter != "All":
+            filtered_recs = [r for r in filtered_recs if r.risk_level == risk_filter]
+        
+        filtered_recs = filtered_recs[:max_results]
+        
+        if filtered_recs:
+            st.success(f"Found {len(filtered_recs)} files that may be safe to delete")
+            
+            # Display recommendations
+            for idx, rec in enumerate(filtered_recs, 1):
+                with st.expander(
+                    f"#{idx} - {rec.file_name} - {rec.safety_score}% safe ({rec.risk_level} risk)",
+                    expanded=(idx <= 5)  # Expand first 5
+                ):
+                    col_a, col_b = st.columns([2, 1])
+                    
+                    with col_a:
+                        st.write(f"**File:** `{rec.file_name}`")
+                        st.write(f"**Path:** `{rec.file_path}`")
+                        st.write(f"**Size:** {format_file_size(rec.size_bytes)}")
+                        st.write(f"**Last Accessed:** {rec.last_accessed.strftime('%Y-%m-%d')}")
+                        
+                        # Reasons
+                        st.write("**Why it may be safe to delete:**")
+                        for reason in rec.reasons:
+                            st.write(f"• {reason}")
+                    
+                    with col_b:
+                        # Visual score indicator
+                        score_color = "#28a745" if rec.risk_level == "LOW" else "#ffc107" if rec.risk_level == "MEDIUM" else "#dc3545"
+                        st.markdown(f"""
+                        <div style="text-align: center; padding: 20px; background-color: {score_color}; border-radius: 10px; color: white;">
+                            <h1 style="margin: 0;">{rec.safety_score}%</h1>
+                            <p style="margin: 0;">SAFE</p>
+                            <p style="margin: 0; font-size: 0.9em;">{rec.risk_level} RISK</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+            
+            # Summary statistics
+            st.markdown("---")
+            st.subheader("📊 Recommendation Summary")
+            
+            total_size = sum(r.size_bytes for r in filtered_recs)
+            risk_counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0}
+            for r in filtered_recs:
+                risk_counts[r.risk_level] += 1
+            
+            col_x, col_y, col_z, col_w = st.columns(4)
+            with col_x:
+                st.metric("Total Files", len(filtered_recs))
+            with col_y:
+                st.metric("Potential Space", format_file_size(total_size))
+            with col_z:
+                st.metric("Low Risk", risk_counts["LOW"])
+            with col_w:
+                st.metric("Medium Risk", risk_counts["MEDIUM"])
+            
+            # Explanation of scoring
+            with st.expander("ℹ️ How does the safety scoring work?"):
+                st.markdown("""
+                **FileSense uses transparent, rule-based scoring (NO machine learning)**
+                
+                Files are scored based on 4 factors:
+                
+                1. **Last Accessed Time (0-40 points)**
+                   - Not accessed in 2+ years = 40 points
+                   - Not accessed in 1+ year = 35 points
+                   - Recently accessed = 0 points
+                
+                2. **File Type (0-30 points)**
+                   - Temporary files (.tmp, .cache) = 30 points
+                   - Backup files = 20 points
+                   - Log files = 15 points
+                   - Regular files = 0 points
+                
+                3. **File Size (0-15 points)**
+                   - Very small files (<1KB) = 15 points
+                   - Large files (>100MB) = 0 points
+                   - Smaller files are safer to delete
+                
+                4. **Duplicates (0-15 points)**
+                   - 3+ duplicates exist = 15 points
+                   - 1 duplicate exists = 10 points
+                   - No duplicates = 0 points
+                
+                **Total Score:**
+                - 70-100 = LOW risk (likely safe)
+                - 40-69 = MEDIUM risk (review carefully)
+                - 0-39 = HIGH risk (keep unless certain)
+                
+                **Why this is safer than auto-delete:**
+                - All decisions are transparent and explainable
+                - You review each file before deleting
+                - No "black box" algorithms
+                - Multiple factors considered together
+                """)
+        else:
+            st.info("No files match the current filter criteria")
+    
     # Welcome screen (only show if no files scanned)
     if st.session_state.files is None:
         st.info("👈 Enter a folder path and click **Start Scan** to begin")
@@ -378,12 +558,18 @@ def main():
         ### Features:
         - 📁 **File Scanner**: List all files with metadata
         - 🧠 **Semantic Search**: Find files using natural language (supports .txt, .pdf, .docx)
+        - �️ **Safe-to-Delete**: Rule-based recommendations for cleaning up files
+        - 🔍 **Duplicate Detection**: Find identical files by content hash
         - 🔒 **Safe**: System folders skipped, permission errors handled
         - 🚀 **Fast**: Efficient indexing with FAISS
         
-        ### What is Semantic Search?
-        Unlike keyword search, semantic search understands *meaning*. Search for "meeting notes" 
-        and find "discussion summary" or "conference minutes" - even without those exact words!
+        ### What makes Safe-to-Delete recommendations safe?
+        - **Transparent scoring**: All decisions based on clear rules (last accessed, file type, size, duplicates)
+        - **No auto-delete**: You manually review every file before deletion
+        - **Explainable**: Each recommendation shows exactly why it's considered safe
+        - **Risk levels**: LOW/MEDIUM/HIGH labels help you decide
+        
+        Unlike tools that automatically delete files, FileSense gives you the information to make informed decisions!
         """)
 
 
