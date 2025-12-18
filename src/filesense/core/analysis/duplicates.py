@@ -48,13 +48,7 @@ class DuplicateDetector:
         self.duplicates_found = 0
     
     def add_file(self, file_path: str, size_bytes: int) -> None:
-        """
-        Add a file to the duplicate tracking system.
-        
-        Args:
-            file_path: Full path to the file
-            size_bytes: Size of the file in bytes
-        """
+        # Add file to duplicate tracking by grouping by size first
         # Group by size first (optimization - only hash files with same size)
         if size_bytes not in self.size_map:
             self.size_map[size_bytes] = []
@@ -62,16 +56,7 @@ class DuplicateDetector:
         self.files_processed += 1
     
     def compute_hash(self, file_path: str, chunk_size: int = 8192) -> str:
-        """
-        Compute SHA-256 hash of a file.
-        
-        Args:
-            file_path: Path to the file
-            chunk_size: Size of chunks to read (for memory efficiency)
-            
-        Returns:
-            Hex string of the SHA-256 hash
-        """
+        # Compute SHA-256 hash of file content in chunks
         sha256 = hashlib.sha256()
         
         try:
@@ -89,14 +74,7 @@ class DuplicateDetector:
             return ""
     
     def find_duplicates(self) -> List[DuplicateGroup]:
-        """
-        Find all duplicate files.
-        
-        Only computes hashes for files with matching sizes (optimization).
-        
-        Returns:
-            List of DuplicateGroup objects containing duplicate file groups
-        """
+        # Find all duplicate files by comparing SHA-256 hashes
         duplicate_groups = []
         
         # Only process files that have at least one other file with same size
@@ -130,15 +108,7 @@ class DuplicateDetector:
         return duplicate_groups
     
     def is_duplicate(self, file_path: str) -> bool:
-        """
-        Check if a file has duplicates.
-        
-        Args:
-            file_path: Path to check
-            
-        Returns:
-            True if this file has at least one duplicate
-        """
+        # Check if a file has at least one duplicate
         file_hash = self.compute_hash(file_path)
         if not file_hash:
             return False
@@ -146,15 +116,7 @@ class DuplicateDetector:
         return file_hash in self.hash_map and len(self.hash_map[file_hash]) > 1
     
     def get_duplicates_of(self, file_path: str) -> List[str]:
-        """
-        Get all duplicates of a specific file.
-        
-        Args:
-            file_path: Path to the file
-            
-        Returns:
-            List of paths to duplicate files (excluding the input file)
-        """
+        # Get all duplicates of a specific file (excluding itself)
         file_hash = self.compute_hash(file_path)
         if not file_hash or file_hash not in self.hash_map:
             return []
@@ -166,12 +128,7 @@ class DuplicateDetector:
         return duplicates
     
     def get_stats(self) -> dict:
-        """
-        Get duplicate detection statistics.
-        
-        Returns:
-            Dictionary with statistics
-        """
+        # Get duplicate detection statistics
         return {
             "files_processed": self.files_processed,
             "duplicates_found": self.duplicates_found,

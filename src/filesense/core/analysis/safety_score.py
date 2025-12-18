@@ -77,17 +77,7 @@ class SafetyAnalyzer:
         has_duplicate: bool = False,
         duplicate_count: int = 0
     ) -> SafetyRecommendation:
-        """
-        Analyze a file and generate a safety recommendation.
-        
-        Args:
-            file_info: File metadata
-            has_duplicate: Whether this file has duplicates
-            duplicate_count: Number of duplicates found
-            
-        Returns:
-            SafetyRecommendation with score and explanations
-        """
+        # Analyze file and generate safety recommendation with score and reasons
         score = 0
         reasons = []
         
@@ -134,12 +124,7 @@ class SafetyAnalyzer:
         )
     
     def _score_access_time(self, last_accessed: datetime) -> Tuple[int, Optional[str]]:
-        """
-        Score based on how long ago the file was accessed.
-        
-        Returns:
-            (score, reason) tuple
-        """
+        # Score based on days since last access (older = higher score)
         days_since_access = (self.now - last_accessed).days
         
         if days_since_access > 730:  # 2+ years
@@ -158,12 +143,7 @@ class SafetyAnalyzer:
             return (0, "Recently accessed")
     
     def _score_file_type(self, file_info: FileInfo) -> Tuple[int, Optional[str]]:
-        """
-        Score based on file type and location.
-        
-        Returns:
-            (score, reason) tuple
-        """
+        # Score based on file type and location (temp/backup/log files)
         extension = file_info.extension.lower()
         path = Path(file_info.full_path)
         
@@ -192,13 +172,7 @@ class SafetyAnalyzer:
         return (0, None)
     
     def _score_file_size(self, size_bytes: int) -> Tuple[int, Optional[str]]:
-        """
-        Score based on file size.
-        Smaller files are safer to delete (less risk of important data loss).
-        
-        Returns:
-            (score, reason) tuple
-        """
+        # Score based on file size (smaller = safer to delete)
         if size_bytes < 1024:  # < 1 KB
             return (15, "Very small file")
         elif size_bytes < 10 * 1024:  # < 10 KB
@@ -215,13 +189,7 @@ class SafetyAnalyzer:
             return (0, f"Large file ({size_bytes // (1024 * 1024)} MB)")
     
     def _score_duplicates(self, has_duplicate: bool, duplicate_count: int) -> Tuple[int, Optional[str]]:
-        """
-        Score based on duplicate existence.
-        If duplicates exist, this file is safer to delete.
-        
-        Returns:
-            (score, reason) tuple
-        """
+        # Score based on duplicate count (more duplicates = safer)
         if not has_duplicate:
             return (0, None)
         
@@ -237,16 +205,7 @@ class SafetyAnalyzer:
         files: List[FileInfo],
         duplicate_map: Optional[dict] = None
     ) -> List[SafetyRecommendation]:
-        """
-        Analyze multiple files and return recommendations.
-        
-        Args:
-            files: List of FileInfo objects
-            duplicate_map: Optional dict mapping file_path -> duplicate_count
-            
-        Returns:
-            List of SafetyRecommendation objects, sorted by safety score (descending)
-        """
+        # Analyze multiple files and return sorted recommendations
         recommendations = []
         
         for file_info in files:
@@ -271,16 +230,6 @@ class SafetyAnalyzer:
         min_score: int = 50,
         limit: int = 50
     ) -> List[SafetyRecommendation]:
-        """
-        Get top safe-to-delete recommendations.
-        
-        Args:
-            recommendations: List of all recommendations
-            min_score: Minimum safety score to include
-            limit: Maximum number of recommendations to return
-            
-        Returns:
-            Filtered and limited list of recommendations
-        """
+        # Get top recommendations filtered by minimum score
         filtered = [r for r in recommendations if r.safety_score >= min_score]
         return filtered[:limit]

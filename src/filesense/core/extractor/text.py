@@ -45,15 +45,7 @@ class TextExtractor:
         self.files_failed = 0
     
     def can_extract(self, file_path: Path) -> bool:
-        """
-        Check if text can be extracted from this file.
-        
-        Args:
-            file_path: Path to the file
-            
-        Returns:
-            True if the file format is supported
-        """
+        # Check if text extraction is supported for this file type
         extension = file_path.suffix.lower()
         
         # Check if extension is supported
@@ -72,16 +64,7 @@ class TextExtractor:
         return True
     
     def extract_text(self, file_path: Path, max_chars: int = 100000) -> Optional[str]:
-        """
-        Extract text content from a file.
-        
-        Args:
-            file_path: Path to the file
-            max_chars: Maximum characters to extract (prevents memory issues)
-            
-        Returns:
-            Extracted text, or None if extraction failed
-        """
+        # Extract text from file with character limit for memory safety
         if not self.can_extract(file_path):
             return None
         
@@ -110,16 +93,7 @@ class TextExtractor:
             return None
     
     def _extract_txt(self, file_path: Path, max_chars: int) -> Optional[str]:
-        """
-        Extract text from a plain text file.
-        
-        Args:
-            file_path: Path to .txt file
-            max_chars: Maximum characters to read
-            
-        Returns:
-            File content as string
-        """
+        # Read plain text file with UTF-8/latin-1 fallback
         try:
             # Try UTF-8 first
             with open(file_path, "r", encoding="utf-8") as f:
@@ -136,16 +110,7 @@ class TextExtractor:
                 return None
     
     def _extract_pdf(self, file_path: Path, max_chars: int) -> Optional[str]:
-        """
-        Extract text from a PDF file.
-        
-        Args:
-            file_path: Path to .pdf file
-            max_chars: Maximum characters to extract
-            
-        Returns:
-            Extracted text from all pages
-        """
+        # Extract text from all PDF pages using PyPDF2
         if not PDF_AVAILABLE:
             return None
         
@@ -174,16 +139,7 @@ class TextExtractor:
             return None
     
     def _extract_docx(self, file_path: Path, max_chars: int) -> Optional[str]:
-        """
-        Extract text from a Word document.
-        
-        Args:
-            file_path: Path to .docx file
-            max_chars: Maximum characters to extract
-            
-        Returns:
-            Extracted text from all paragraphs
-        """
+        # Extract text from all paragraphs in Word document
         if not DOCX_AVAILABLE:
             return None
         
@@ -210,12 +166,7 @@ class TextExtractor:
             return None
     
     def get_stats(self) -> dict:
-        """
-        Get extraction statistics.
-        
-        Returns:
-            Dictionary with processing statistics
-        """
+        # Return extraction statistics (processed/failed counts)
         return {
             "files_processed": self.files_processed,
             "files_failed": self.files_failed
@@ -223,20 +174,6 @@ class TextExtractor:
 
 
 def extract_text_from_file(file_path: str, max_chars: int = 100000) -> Optional[str]:
-    """
-    Convenience function to extract text from a file.
-    
-    Args:
-        file_path: Path to the file (as string)
-        max_chars: Maximum characters to extract
-        
-    Returns:
-        Extracted text or None
-        
-    Example:
-        >>> text = extract_text_from_file("document.pdf")
-        >>> if text:
-        ...     print(f"Extracted {len(text)} characters")
-    """
+    # Convenience function to extract text from a file path
     extractor = TextExtractor()
     return extractor.extract_text(Path(file_path), max_chars)

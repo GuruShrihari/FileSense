@@ -69,15 +69,7 @@ class EmbeddingModel:
         logger.info(f"Model loaded. Embedding dimension: {self.embedding_dim}")
     
     def encode(self, text: str) -> np.ndarray:
-        """
-        Generate embedding for a single text.
-        
-        Args:
-            text: Input text to encode
-            
-        Returns:
-            Numpy array of shape (embedding_dim,)
-        """
+        # Generate embedding vector for a single text
         # Generate embedding
         embedding = self.model.encode(text, convert_to_numpy=True)
         return embedding
@@ -88,17 +80,7 @@ class EmbeddingModel:
         batch_size: int = 32,
         show_progress: bool = False
     ) -> np.ndarray:
-        """
-        Generate embeddings for multiple texts efficiently.
-        
-        Args:
-            texts: List of input texts
-            batch_size: Number of texts to process at once
-            show_progress: Whether to show progress bar
-            
-        Returns:
-            Numpy array of shape (num_texts, embedding_dim)
-        """
+        # Generate embeddings for multiple texts efficiently in batches
         if not texts:
             return np.array([])
         
@@ -113,10 +95,5 @@ class EmbeddingModel:
         return embeddings
     
     def get_embedding_dimension(self) -> int:
-        """
-        Get the dimensionality of embeddings produced by this model.
-        
-        Returns:
-            Embedding dimension (e.g., 384 for all-MiniLM-L6-v2)
-        """
+        # Get the dimensionality of embeddings (e.g., 384)
         return self.embedding_dim

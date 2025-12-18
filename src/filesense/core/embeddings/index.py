@@ -76,14 +76,7 @@ class VectorIndex:
         file_paths: List[str],
         metadata: Optional[List[Dict]] = None
     ) -> None:
-        """
-        Add embeddings to the index.
-        
-        Args:
-            embeddings: Array of shape (num_files, embedding_dim)
-            file_paths: List of file paths corresponding to embeddings
-            metadata: Optional list of metadata dicts for each file
-        """
+        # Add embeddings and file metadata to the FAISS index
         if embeddings.shape[0] != len(file_paths):
             raise ValueError("Number of embeddings must match number of file paths")
         
@@ -118,17 +111,7 @@ class VectorIndex:
         query_embedding: np.ndarray, 
         top_k: int = 10
     ) -> List[Tuple[str, float, Dict]]:
-        """
-        Search for most similar items to the query.
-        
-        Args:
-            query_embedding: Query embedding of shape (embedding_dim,)
-            top_k: Number of results to return
-            
-        Returns:
-            List of (file_path, similarity_score, metadata) tuples,
-            sorted by similarity (higher = more similar)
-        """
+        # Search for most similar items using cosine similarity
         if self.index.ntotal == 0:
             logger.warning("Index is empty - no results to return")
             return []
@@ -160,12 +143,7 @@ class VectorIndex:
         return results
     
     def save(self, save_dir: str) -> None:
-        """
-        Save the index and metadata to disk.
-        
-        Args:
-            save_dir: Directory to save index files
-        """
+        # Save the FAISS index and metadata to disk
         save_path = Path(save_dir)
         save_path.mkdir(parents=True, exist_ok=True)
         
@@ -185,15 +163,7 @@ class VectorIndex:
         logger.info(f"Index saved to {save_dir}")
     
     def load(self, save_dir: str) -> None:
-        """
-        Load the index and metadata from disk.
-        
-        Args:
-            save_dir: Directory containing saved index files
-        
-        Raises:
-            FileNotFoundError: If index files don't exist
-        """
+        # Load the FAISS index and metadata from disk
         save_path = Path(save_dir)
         
         # Load FAISS index
@@ -217,19 +187,14 @@ class VectorIndex:
         logger.info(f"Index loaded from {save_dir}. Total items: {self.index.ntotal}")
     
     def clear(self) -> None:
-        """Clear all data from the index."""
+        # Clear all data from the index
         self.index.reset()
         self.file_paths.clear()
         self.file_metadata.clear()
         logger.info("Index cleared")
     
     def get_stats(self) -> dict:
-        """
-        Get index statistics.
-        
-        Returns:
-            Dictionary with index statistics
-        """
+        # Get index statistics (total items, dimension, training status)
         return {
             "total_items": self.index.ntotal,
             "embedding_dim": self.embedding_dim,

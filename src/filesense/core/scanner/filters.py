@@ -35,27 +35,7 @@ SKIP_PATTERNS: Set[str] = {
 
 
 def should_skip_directory(path: Path) -> bool:
-    """
-    Determine if a directory should be skipped during scanning.
-
-    Skips:
-    - Windows system directories (C:\\Windows, Program Files, etc.)
-    - AppData folders
-    - Hidden system folders
-    - Common development folders (node_modules, .git, etc.)
-
-    Args:
-        path: Directory path to check
-
-    Returns:
-        True if the directory should be skipped, False otherwise
-
-    Examples:
-        >>> should_skip_directory(Path("C:/Windows"))
-        True
-        >>> should_skip_directory(Path("C:/Users/John/Documents"))
-        False
-    """
+    # Determine if directory should be skipped (system folders, hidden, dev folders)
     try:
         # Get the lowercase name for case-insensitive comparison
         dir_name_lower = path.name.lower()
@@ -90,15 +70,7 @@ def should_skip_directory(path: Path) -> bool:
 
 
 def is_valid_file(path: Path) -> bool:
-    """
-    Check if a file should be included in the scan results.
-
-    Args:
-        path: File path to check
-
-    Returns:
-        True if the file should be included, False otherwise
-    """
+    # Check if file should be included (not hidden, not system file)
     try:
         # Skip hidden files
         if path.name.startswith("."):

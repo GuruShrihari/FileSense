@@ -69,20 +69,7 @@ class FileScanner:
     def scan_directory(
         self, root_path: str, recursive: bool = True, max_depth: Optional[int] = None
     ) -> List[FileInfo]:
-        """
-        Scan a directory and return metadata for all accessible files.
-
-        Args:
-            root_path: Starting directory path (as string)
-            recursive: Whether to scan subdirectories (default: True)
-            max_depth: Maximum recursion depth (None = unlimited)
-
-        Returns:
-            List of FileInfo objects for all discovered files
-
-        Raises:
-            ValueError: If root_path doesn't exist or isn't a directory
-        """
+        # Scan directory and return metadata for all accessible files
         # Convert to Path object
         root = Path(root_path).resolve()
 
@@ -119,15 +106,7 @@ class FileScanner:
         current_depth: int,
         max_depth: Optional[int],
     ) -> None:
-        """
-        Internal recursive scanning method.
-
-        Args:
-            directory: Current directory to scan
-            results: List to append FileInfo objects to
-            current_depth: Current recursion depth
-            max_depth: Maximum allowed depth (None = unlimited)
-        """
+        # Recursively scan directory and collect file metadata
         # Check depth limit
         if max_depth is not None and current_depth > max_depth:
             return
@@ -175,15 +154,7 @@ class FileScanner:
             logger.warning(f"OS error scanning directory {directory}: {e}")
 
     def _extract_file_info(self, file_path: Path) -> Optional[FileInfo]:
-        """
-        Extract metadata from a file.
-
-        Args:
-            file_path: Path to the file
-
-        Returns:
-            FileInfo object, or None if extraction fails
-        """
+        # Extract metadata from file (path, name, extension, size, last accessed)
         try:
             # Get file stats
             stats = file_path.stat()
@@ -202,12 +173,7 @@ class FileScanner:
             return None
 
     def get_stats(self) -> dict:
-        """
-        Get scanning statistics from the last scan.
-
-        Returns:
-            Dictionary with scan statistics
-        """
+        # Get scanning statistics from the last scan
         return {
             "files_scanned": self.files_scanned,
             "errors_encountered": self.errors_encountered,

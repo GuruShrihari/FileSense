@@ -29,15 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def format_file_size(size_bytes: int) -> str:
-    """
-    Convert bytes to human-readable format.
-    
-    Args:
-        size_bytes: File size in bytes
-        
-    Returns:
-        Formatted string (e.g., "1.5 MB")
-    """
+    # Convert bytes to human-readable format (KB, MB, GB, etc.)
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if size_bytes < 1024.0:
             return f"{size_bytes:.2f} {unit}"
@@ -46,7 +38,7 @@ def format_file_size(size_bytes: int) -> str:
 
 
 def main():
-    """Main Streamlit application."""
+    # Main Streamlit application entry point
     
     # Page configuration
     st.set_page_config(
