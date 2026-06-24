@@ -13,9 +13,16 @@ from datetime import datetime
 import logging
 import sys
 
-SRC = Path(__file__).resolve().parents[2]
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+# Resolve the src/ directory for imports.
+# Handles both normal execution and PyInstaller frozen bundles.
+if getattr(sys, "frozen", False):
+    # Inside a PyInstaller bundle: _MEIPASS is the temp extraction root
+    _BASE = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+else:
+    _BASE = Path(__file__).resolve().parents[2]
+
+if str(_BASE) not in sys.path:
+    sys.path.insert(0, str(_BASE))
 
 from filesense.core.scanner import FileScanner
 from filesense.core.extractor import TextExtractor

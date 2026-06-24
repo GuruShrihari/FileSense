@@ -65,3 +65,11 @@ data/*
 # Environment Variables
 .env
 .env.local
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# Desktop mode temp files
+filesense_config_*/

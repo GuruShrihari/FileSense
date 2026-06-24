@@ -9,7 +9,7 @@ description = "Windows-based local file management application"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "Shrihari Gururajan"}
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 [project.scripts]
-filesense = "filesense.__main__:main"
+filesense = "filesense.launcher:launch"
 
 [tool.black]
 line-length = 88
