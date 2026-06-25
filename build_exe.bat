@@ -40,10 +40,10 @@ REM -----------------------------------------------------------------------
 REM  Step 2: Verify pywebview is installed
 REM -----------------------------------------------------------------------
 echo [2/4] Verifying pywebview installation...
-python -c "import webview; print(f'pywebview {webview.__version__}')"
+python -c "import webview; print('pywebview installed successfully')"
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: pywebview is not installed.
-    echo Install it with: pip install pywebview
+    echo Install it with: py -m pip install pywebview
     pause
     exit /b 1
 )
