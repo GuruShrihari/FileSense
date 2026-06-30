@@ -65,7 +65,9 @@ REM -----------------------------------------------------------------------
 echo [4/4] Building executable with PyInstaller...
 echo       This may take 5-15 minutes depending on your system.
 echo.
-pyinstaller filesense.spec --noconfirm
+
+python -m PyInstaller filesense.spec --noconfirm
+
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo ERROR: PyInstaller build failed. Check the output above for details.

@@ -3,6 +3,7 @@
 
 import os
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_all, copy_metadata
 
 SPEC_DIR = os.path.abspath(SPECPATH)  # noqa: F821
 SRC_DIR = os.path.join(SPEC_DIR, "src")
@@ -11,6 +12,24 @@ SRC_DIR = os.path.join(SPEC_DIR, "src")
 import streamlit
 streamlit_dir = Path(streamlit.__file__).parent
 streamlit_static = str(streamlit_dir / "static")
+
+# Collect ALL streamlit artifacts (metadata, datas, hidden imports)
+sl_datas, sl_binaries, sl_hiddenimports = collect_all("streamlit")
+
+# Collect sentence-transformers and its heavy dependencies
+st_datas, st_binaries, st_hiddenimports = collect_all("sentence_transformers")
+tf_datas, tf_binaries, tf_hiddenimports = collect_all("transformers")
+tk_datas, tk_binaries, tk_hiddenimports = collect_all("tokenizers")
+
+# Also collect metadata for packages inspected at runtime
+extra_metadata = []
+for pkg in ["streamlit", "altair", "pydeck", "packaging", "importlib_metadata",
+            "sentence-transformers", "transformers", "tokenizers", "torch",
+            "huggingface-hub", "numpy", "tqdm", "safetensors"]:
+    try:
+        extra_metadata += copy_metadata(pkg)
+    except Exception:
+        pass
 
 # Bundle the sentence-transformers model cache if present
 MODEL_NAME = "sentence-transformers_all-MiniLM-L6-v2"
@@ -28,10 +47,11 @@ for cache_dir in POSSIBLE_CACHE_DIRS:
 datas = [
     (streamlit_static, "streamlit/static"),
     (os.path.join(SRC_DIR, "filesense"), "filesense"),
-] + model_datas
+] + model_datas + sl_datas + st_datas + tf_datas + tk_datas + extra_metadata
 
 hiddenimports = [
     "streamlit", "streamlit.web", "streamlit.web.cli",
+    "streamlit.web.bootstrap",
     "streamlit.web.server", "streamlit.web.server.server",
     "streamlit.runtime", "streamlit.runtime.scriptrunner",
     "streamlit.runtime.caching", "streamlit.components.v1",
@@ -51,11 +71,12 @@ hiddenimports = [
     "packaging", "packaging.version", "packaging.specifiers",
     "packaging.requirements", "importlib_metadata",
     "altair", "pydeck", "toml",
-]
+] + sl_hiddenimports + st_hiddenimports + tf_hiddenimports + tk_hiddenimports
 
 a = Analysis(
     [os.path.join(SRC_DIR, "filesense", "launcher.py")],
     pathex=[SRC_DIR],
+    binaries=sl_binaries + st_binaries + tf_binaries + tk_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     excludes=[
@@ -75,7 +96,7 @@ exe = EXE(
     debug=False,
     strip=False,
     upx=True,
-    console=False,
+    console=True,  # TODO: set back to False after debugging
 )
 
 coll = COLLECT(

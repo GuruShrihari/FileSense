@@ -7,8 +7,11 @@ import numpy as np
 try:
     from sentence_transformers import SentenceTransformer
     TRANSFORMERS_AVAILABLE = True
-except ImportError:
+except ImportError as _imp_err:
     TRANSFORMERS_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "sentence_transformers import failed: %s", _imp_err, exc_info=True
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +34,12 @@ class EmbeddingModel:
         self.model_name = model_name or self.DEFAULT_MODEL
         logger.info(f"Loading embedding model: {self.model_name}")
         self.model = SentenceTransformer(self.model_name)
-        self.embedding_dim = self.model.get_sentence_embedding_dimension()
+        dim = self.model.get_sentence_embedding_dimension()
+        if dim is None:
+            raise ValueError(
+                f"Could not determine embedding dimension for model '{self.model_name}'."
+            )
+        self.embedding_dim = dim
         logger.info(f"Model loaded. Embedding dimension: {self.embedding_dim}")
     
     def encode(self, text: str) -> np.ndarray:

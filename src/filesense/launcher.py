@@ -3,30 +3,61 @@ FileSense Desktop Launcher.
 
 Orchestrates the Streamlit server and pywebview window to present
 FileSense as a native desktop application with no browser exposure.
+
+Architecture
+~~~~~~~~~~~~
+Streamlit's bootstrap *must* run on the **main thread** because it
+installs signal handlers (which Python restricts to the main thread).
+Therefore pywebview runs in a background thread instead.
+
+This also eliminates the PyInstaller fork-bomb: no subprocess is spawned
+at all, so ``sys.executable`` pointing to the ``.exe`` is irrelevant.
 """
 
 from __future__ import annotations
 
+import asyncio
 import atexit
+import ctypes
+import http.client
 import logging
 import os
 import platform
 import shutil
-import signal
 import socket
-import subprocess
 import sys
+import threading
 import time
+import traceback
 import urllib.request
 import urllib.error
 from pathlib import Path
 from typing import Optional
 
+# ---------------------------------------------------------------------------
+#  Logging — write to a file so we always have diagnostics even when the
+#  .exe is built with console=False.
+# ---------------------------------------------------------------------------
+_LOG_DIR = Path(os.environ.get("LOCALAPPDATA", os.environ.get("TEMP", "."))) / "FileSense"
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+_LOG_FILE = _LOG_DIR / "launcher.log"
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.FileHandler(_LOG_FILE, mode="w", encoding="utf-8"),
+        logging.StreamHandler(sys.stderr),
+    ],
 )
 logger = logging.getLogger("filesense.launcher")
+logger.info("=== FileSense Launcher starting ===")
+logger.info(
+    "Python %s | frozen=%s | platform=%s",
+    sys.version, getattr(sys, "frozen", False), platform.platform(),
+)
+if getattr(sys, "frozen", False):
+    logger.info("_MEIPASS = %s", getattr(sys, "_MEIPASS", "N/A"))
 
 _APP_TITLE = "FileSense"
 _HEALTH_ENDPOINT = "/_stcore/health"
@@ -35,6 +66,10 @@ _HEALTH_POLL_INTERVAL_SECONDS = 0.5
 _WINDOW_WIDTH = 1280
 _WINDOW_HEIGHT = 800
 
+
+# =========================================================================
+#  Utility helpers
+# =========================================================================
 
 def _find_free_port() -> int:
     """Return an available TCP port on localhost."""
@@ -49,7 +84,7 @@ def _resolve_streamlit_app_path() -> str:
     Handles both normal Python execution and PyInstaller frozen bundles.
     """
     if getattr(sys, "frozen", False):
-        base_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+        base_dir = Path(sys._MEIPASS) / "filesense"  # type: ignore[attr-defined]
     else:
         base_dir = Path(__file__).resolve().parent
 
@@ -62,123 +97,6 @@ def _resolve_streamlit_app_path() -> str:
         )
 
     return str(app_path)
-
-
-class StreamlitServer:
-    """Manages the Streamlit subprocess lifecycle."""
-
-    def __init__(self, port: int, app_path: str, config_dir: Path) -> None:
-        self.port = port
-        self.app_path = app_path
-        self.config_dir = config_dir
-        self._process: Optional[subprocess.Popen] = None  # type: ignore[type-arg]
-
-    @property
-    def url(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
-
-    @property
-    def health_url(self) -> str:
-        return f"{self.url}{_HEALTH_ENDPOINT}"
-
-    def start(self) -> None:
-        """Launch the Streamlit server as a subprocess."""
-        env = os.environ.copy()
-        env["STREAMLIT_CONFIG_DIR"] = str(self.config_dir / ".streamlit")
-        env["STREAMLIT_SERVER_HEADLESS"] = "true"
-        env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
-        env["STREAMLIT_SERVER_PORT"] = str(self.port)
-        env["STREAMLIT_SERVER_ADDRESS"] = "127.0.0.1"
-        env["STREAMLIT_SERVER_ENABLE_CORS"] = "false"
-        env["STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION"] = "false"
-        env["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
-
-        cmd = [sys.executable, "-m", "streamlit", "run", self.app_path,
-               "--server.port", str(self.port),
-               "--server.headless", "true",
-               "--browser.gatherUsageStats", "false",
-               "--server.fileWatcherType", "none"]
-
-        logger.info("Starting Streamlit: %s", " ".join(cmd))
-
-        creation_flags = 0
-        if platform.system() == "Windows":
-            creation_flags = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-
-        self._process = subprocess.Popen(
-            cmd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=creation_flags,
-        )
-
-        atexit.register(self.stop)
-        logger.info("Streamlit process started (PID %d)", self._process.pid)
-
-    def wait_until_ready(self, timeout: float = _STARTUP_TIMEOUT_SECONDS) -> bool:
-        """Block until the Streamlit health endpoint responds 200."""
-        start_time = time.monotonic()
-        logger.info("Waiting for Streamlit at %s ...", self.health_url)
-
-        while (time.monotonic() - start_time) < timeout:
-            if self._process and self._process.poll() is not None:
-                rc = self._process.returncode
-                stderr_output = ""
-                if self._process.stderr:
-                    stderr_output = self._process.stderr.read().decode(errors="replace")
-                logger.error(
-                    "Streamlit exited prematurely (code %d): %s", rc, stderr_output[:500],
-                )
-                return False
-
-            try:
-                req = urllib.request.Request(self.health_url, method="GET")
-                with urllib.request.urlopen(req, timeout=2) as resp:
-                    if resp.status == 200:
-                        logger.info("Streamlit is ready.")
-                        return True
-            except (urllib.error.URLError, OSError, ConnectionError):
-                pass
-
-            time.sleep(_HEALTH_POLL_INTERVAL_SECONDS)
-
-        logger.error("Streamlit did not become ready within %ds", timeout)
-        return False
-
-    def stop(self) -> None:
-        """Terminate the Streamlit subprocess and its entire process tree."""
-        if self._process is None:
-            return
-
-        logger.info("Stopping Streamlit (PID %d) ...", self._process.pid)
-
-        try:
-            if platform.system() == "Windows":
-                subprocess.call(
-                    ["taskkill", "/F", "/T", "/PID", str(self._process.pid)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            else:
-                os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
-                try:
-                    self._process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
-        except (OSError, ProcessLookupError):
-            pass
-
-        self._process = None
-        logger.info("Streamlit stopped.")
-
-    def cleanup_config(self) -> None:
-        """Remove the temporary config directory."""
-        try:
-            if self.config_dir.exists():
-                shutil.rmtree(self.config_dir, ignore_errors=True)
-        except Exception:
-            pass
 
 
 def _show_error_dialog(title: str, message: str) -> None:
@@ -195,8 +113,67 @@ def _show_error_dialog(title: str, message: str) -> None:
         print(f"ERROR: {title}\n{message}", file=sys.stderr)
 
 
+def _acquire_single_instance_lock() -> bool:
+    """On Windows, create a named mutex to enforce single-instance.
+
+    Returns True if we acquired the lock (we're the first instance).
+    Returns False if another instance already holds it.
+    On non-Windows platforms, always returns True.
+    """
+    if platform.system() != "Windows":
+        return True
+
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        mutex_name = "Global\\FileSense_SingleInstance_Mutex"
+        handle = kernel32.CreateMutexW(None, True, mutex_name)
+        last_error = kernel32.GetLastError()
+
+        if handle == 0 or last_error == 183:  # ERROR_ALREADY_EXISTS
+            logger.warning("Another FileSense instance is already running.")
+            return False
+        return True
+    except Exception:
+        return True
+
+
+def _wait_for_health(url: str, timeout: float = _STARTUP_TIMEOUT_SECONDS) -> bool:
+    """Block until the Streamlit health endpoint responds 200."""
+    start = time.monotonic()
+    logger.info("Waiting for Streamlit at %s ...", url)
+
+    while (time.monotonic() - start) < timeout:
+        try:
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                if resp.status == 200:
+                    logger.info("Streamlit is ready.")
+                    return True
+        except (urllib.error.URLError, OSError, ConnectionError,
+                http.client.HTTPException):
+            pass
+        time.sleep(_HEALTH_POLL_INTERVAL_SECONDS)
+
+    logger.error("Streamlit did not become ready within %ds", timeout)
+    return False
+
+
+# =========================================================================
+#  Launch
+# =========================================================================
+
 def launch() -> None:
     """Main entry point for the FileSense desktop application."""
+
+    # --- Guard: single-instance enforcement ---
+    if not _acquire_single_instance_lock():
+        _show_error_dialog(
+            "Already Running",
+            "FileSense is already running.\n\n"
+            "Check your taskbar or system tray."
+        )
+        sys.exit(0)
+
     try:
         import webview  # noqa: F401
     except ImportError:
@@ -207,6 +184,10 @@ def launch() -> None:
         )
         sys.exit(1)
 
+    # ---- Event loop policy (must be set before any loop is created) ----
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     port = _find_free_port()
     logger.info("Using port %d", port)
 
@@ -216,53 +197,181 @@ def launch() -> None:
 
     try:
         app_path = _resolve_streamlit_app_path()
+        logger.info("Resolved app path: %s", app_path)
     except FileNotFoundError as exc:
         _show_error_dialog("FileSense Error", str(exc))
         sys.exit(1)
 
-    server = StreamlitServer(port=port, app_path=app_path, config_dir=config_dir)
+    # ---- Configure Streamlit via env vars ----------------------------
+    os.environ["STREAMLIT_CONFIG_DIR"] = str(config_dir / ".streamlit")
+    os.environ["STREAMLIT_SERVER_HEADLESS"] = "true"
+    os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+    os.environ["STREAMLIT_SERVER_PORT"] = str(port)
+    os.environ["STREAMLIT_SERVER_ADDRESS"] = "127.0.0.1"
+    os.environ["STREAMLIT_SERVER_ENABLE_CORS"] = "false"
+    os.environ["STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION"] = "false"
+    os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
 
+    server_url = f"http://127.0.0.1:{port}"
+    health_url = f"{server_url}{_HEALTH_ENDPOINT}"
+
+    flag_options = {
+        "server.port": port,
+        "server.headless": True,
+        "server.address": "127.0.0.1",
+        "browser.gatherUsageStats": False,
+        "server.enableCORS": False,
+        "server.enableXsrfProtection": False,
+        "server.fileWatcherType": "none",
+        "server.maxUploadSize": 200,
+        "global.developmentMode": False,
+    }
+
+    # ---- Import bootstrap (fail fast with a clear message) -----------
     try:
-        server.start()
-    except Exception as exc:
+        from streamlit.web import bootstrap
+    except ImportError as exc:
         _show_error_dialog(
-            "Startup Error",
-            f"Failed to start the Streamlit server:\n\n{exc}"
+            "Missing Dependency",
+            f"Failed to import Streamlit bootstrap:\n\n{exc}"
         )
         sys.exit(1)
 
-    if not server.wait_until_ready():
-        server.stop()
-        server.cleanup_config()
+    # ------------------------------------------------------------------
+    # Architecture (Windows-correct):
+    #   Main thread  →  pywebview (MUST be main thread on Windows for
+    #                    the native window message loop / COM)
+    #   BG thread    →  Streamlit (signal handlers degrade gracefully;
+    #                    they only log a warning, they don't crash)
+    # ------------------------------------------------------------------
+    streamlit_error: Optional[str] = None
+
+    def _streamlit_thread() -> None:
+        """Run Streamlit's bootstrap in a background thread."""
+        nonlocal streamlit_error
+        try:
+            # Monkey-patch: Streamlit's _set_up_signal_handler calls
+            # signal.signal() which raises ValueError in non-main threads.
+            # Replace it with a no-op so the server can start normally.
+            import streamlit.web.bootstrap as _bs
+            _bs._set_up_signal_handler = lambda server: None
+            logger.info("[streamlit thread] Patched signal handler (non-main thread)")
+
+            # Force config via set_option — flag_options alone may not apply
+            # before the Server reads its config.
+            from streamlit import config as _st_config
+            for key, value in flag_options.items():
+                try:
+                    _st_config.set_option(key, value)
+                except Exception as e:
+                    logger.debug("Could not set_option(%s): %s", key, e)
+
+            # In frozen bundles, Streamlit needs to find its static assets.
+            # Ensure the source root is on sys.path so imports resolve.
+            if getattr(sys, "frozen", False):
+                meipass = getattr(sys, "_MEIPASS", None)
+                if meipass and meipass not in sys.path:
+                    sys.path.insert(0, meipass)
+                    logger.info("[streamlit thread] Added _MEIPASS to sys.path: %s", meipass)
+
+            logger.info("[streamlit thread] Starting bootstrap.run (app=%s) ...", app_path)
+            bootstrap.run(
+                app_path,
+                is_hello=False,
+                args=[],
+                flag_options=flag_options,
+            )
+            logger.info("[streamlit thread] bootstrap.run returned normally")
+        except SystemExit as exc:
+            code = getattr(exc, "code", None)
+            logger.info("[streamlit thread] Exited (code=%s)", code)
+        except Exception as exc:
+            streamlit_error = str(exc)
+            logger.exception("[streamlit thread] Streamlit crashed")
+            # Also write to stderr for frozen builds
+            traceback.print_exc()
+
+    def _stop_streamlit() -> None:
+        """Best-effort stop of the Streamlit runtime."""
+        try:
+            from streamlit.runtime import get_instance  # type: ignore[import]
+            runtime = get_instance()
+            if runtime is not None:
+                runtime.stop()
+        except Exception:
+            logger.debug("Could not stop Streamlit via runtime API", exc_info=True)
+
+        # Clean up temp config
+        try:
+            if config_dir.exists():
+                shutil.rmtree(config_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    # Start Streamlit in a background daemon thread
+    st_thread = threading.Thread(
+        target=_streamlit_thread, name="streamlit", daemon=True,
+    )
+    st_thread.start()
+
+    # ------------------------------------------------------------------
+    # Wait for the Streamlit health endpoint on the MAIN thread,
+    # then open the pywebview window (must be main thread on Windows).
+    # ------------------------------------------------------------------
+    logger.info("Waiting for Streamlit health on main thread ...")
+    if not _wait_for_health(health_url):
         _show_error_dialog(
             "Startup Error",
             "FileSense failed to start.\n\n"
-            "The internal server did not respond within the timeout period.\n"
-            "Check the logs for details."
+            "The internal server did not respond within the "
+            "timeout period.\n\n"
+            f"Log file: {_LOG_FILE}",
         )
+        _stop_streamlit()
         sys.exit(1)
 
-    logger.info("Opening pywebview window → %s", server.url)
-
+    logger.info("Streamlit is ready — opening pywebview window → %s", server_url)
     try:
-        webview.create_window(
+        window = webview.create_window(
             title=_APP_TITLE,
-            url=server.url,
+            url=server_url,
             width=_WINDOW_WIDTH,
             height=_WINDOW_HEIGHT,
             resizable=True,
             min_size=(800, 600),
             text_select=True,
+            on_top=True,  # Force to foreground initially
         )
 
-        # Blocking — returns when the window is closed
-        webview.start(debug=False)
+        def _on_shown():
+            """Once visible, disable always-on-top and bring to focus."""
+            try:
+                time.sleep(1)
+                if window is not None:
+                    window.on_top = False
+            except Exception:
+                pass
+
+        # webview.start() blocks until ALL windows are closed
+        webview.start(func=_on_shown, debug=False)
     except Exception as exc:
         logger.exception("pywebview error")
-        _show_error_dialog("Display Error", f"Failed to create window:\n\n{exc}")
+        _show_error_dialog(
+            "Window Error",
+            f"Failed to create the application window:\n\n{exc}",
+        )
     finally:
-        server.stop()
-        server.cleanup_config()
+        logger.info("Window closed — stopping Streamlit server")
+        _stop_streamlit()
+        st_thread.join(timeout=5)
+
+        if streamlit_error:
+            _show_error_dialog(
+                "Server Error",
+                f"Streamlit server crashed:\n\n{streamlit_error}\n\n"
+                f"Log file: {_LOG_FILE}",
+            )
+
         logger.info("FileSense shut down cleanly.")
 
 

@@ -26,7 +26,7 @@ class VectorIndex:
             )
         
         self.embedding_dim = embedding_dim
-        self.index = faiss.IndexFlatIP(embedding_dim)
+        self.index: faiss.Index = faiss.IndexFlatIP(embedding_dim)
         self.file_paths: List[str] = []
         self.file_metadata: List[Dict] = []
         
