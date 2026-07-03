@@ -80,7 +80,7 @@ a = Analysis(
     datas=datas,
     hiddenimports=hiddenimports,
     excludes=[
-        "matplotlib", "scipy", "PIL", "cv2",
+        "matplotlib", "PIL", "cv2",
         "IPython", "notebook", "jupyter",
         "tkinter.test", "test", "tests",
     ],
