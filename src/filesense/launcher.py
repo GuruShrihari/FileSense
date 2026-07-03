@@ -59,6 +59,27 @@ logger.info(
 if getattr(sys, "frozen", False):
     logger.info("_MEIPASS = %s", getattr(sys, "_MEIPASS", "N/A"))
 
+    # Register native DLL directories for torch and other compiled extensions.
+    # Without this, imports of torch/tokenizers fail with DLL-not-found errors.
+    _meipass = Path(getattr(sys, "_MEIPASS", ""))
+    if sys.platform == "win32" and hasattr(os, "add_dll_directory") and _meipass.is_dir():
+        for _dll_dir in [
+            _meipass,
+            _meipass / "torch" / "lib",
+            _meipass / "torch" / "bin",
+            _meipass / "tokenizers",
+        ]:
+            if _dll_dir.is_dir():
+                os.add_dll_directory(str(_dll_dir))
+                logger.debug("Added DLL directory: %s", _dll_dir)
+
+        _extra = os.pathsep.join(
+            str(d) for d in [_meipass, _meipass / "torch" / "lib"]
+            if d.is_dir()
+        )
+        if _extra:
+            os.environ["PATH"] = _extra + os.pathsep + os.environ.get("PATH", "")
+
 _APP_TITLE = "FileSense"
 _HEALTH_ENDPOINT = "/_stcore/health"
 _STARTUP_TIMEOUT_SECONDS = 120

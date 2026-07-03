@@ -2,13 +2,20 @@
 
 from typing import List, Optional
 import logging
+import sys
 import numpy as np
 
+# In PyInstaller frozen builds, sentence_transformers is bundled but its import
+# can still fail due to sub-dependency issues (tokenizers native DLLs, torch
+# path resolution, etc.).  Catch *all* exceptions so the real error surfaces
+# instead of a misleading "not installed" message.
+_TRANSFORMERS_IMPORT_ERROR: Optional[BaseException] = None
 try:
     from sentence_transformers import SentenceTransformer
     TRANSFORMERS_AVAILABLE = True
-except ImportError as _imp_err:
+except Exception as _imp_err:
     TRANSFORMERS_AVAILABLE = False
+    _TRANSFORMERS_IMPORT_ERROR = _imp_err
     logging.getLogger(__name__).warning(
         "sentence_transformers import failed: %s", _imp_err, exc_info=True
     )
@@ -26,6 +33,12 @@ class EmbeddingModel:
     
     def __init__(self, model_name: Optional[str] = None) -> None:
         if not TRANSFORMERS_AVAILABLE:
+            # Provide the *real* failure reason, not just "not installed"
+            if getattr(sys, "frozen", False) and _TRANSFORMERS_IMPORT_ERROR is not None:
+                raise ImportError(
+                    f"sentence-transformers failed to load in frozen build: "
+                    f"{_TRANSFORMERS_IMPORT_ERROR}"
+                ) from _TRANSFORMERS_IMPORT_ERROR
             raise ImportError(
                 "sentence-transformers not installed. "
                 "Install with: pip install sentence-transformers"

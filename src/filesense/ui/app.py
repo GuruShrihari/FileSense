@@ -5,10 +5,35 @@ from pathlib import Path
 import pandas as pd
 from datetime import datetime
 import logging
+import os
 import sys
 
+# ---------------------------------------------------------------------------
+#  PyInstaller frozen-build DLL setup
+#  torch's native extensions (c10.dll, torch_cpu.dll, etc.) live under
+#  <_MEIPASS>/torch/lib/ which the OS doesn't search by default.
+#  Register these directories *before* any torch-dependent import.
+# ---------------------------------------------------------------------------
 if getattr(sys, "frozen", False):
     _BASE = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+
+    if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
+        for _dll_dir in [
+            _BASE,                    # root _internal dir
+            _BASE / "torch" / "lib",  # torch native DLLs
+            _BASE / "torch" / "bin",  # torch bin dir (if present)
+            _BASE / "tokenizers",     # tokenizers native lib
+        ]:
+            if _dll_dir.is_dir():
+                os.add_dll_directory(str(_dll_dir))
+
+    # Also ensure PATH includes these dirs for older-style DLL resolution
+    _extra = os.pathsep.join(
+        str(d) for d in [_BASE, _BASE / "torch" / "lib"]
+        if d.is_dir()
+    )
+    if _extra:
+        os.environ["PATH"] = _extra + os.pathsep + os.environ.get("PATH", "")
 else:
     _BASE = Path(__file__).resolve().parents[2]
 
